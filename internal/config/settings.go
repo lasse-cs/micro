@@ -99,6 +99,7 @@ var defaultCommonSettings = map[string]any{
 	"statusformatr":   "$(bind:ToggleKeyMenu): bindings, $(bind:ToggleHelp): help",
 	"statusline":      true,
 	"syntax":          true,
+	"treesitter":      false,
 	"tabmovement":     false,
 	"tabsize":         float64(4),
 	"tabstospaces":    false,

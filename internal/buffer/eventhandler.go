@@ -116,6 +116,8 @@ func (eh *EventHandler) DoTextEvent(t *TextEvent, useUndo bool) {
 
 // ExecuteTextEvent runs a text event
 func ExecuteTextEvent(t *TextEvent, buf *SharedBuffer) {
+	buf.beginHighlightBatch()
+	defer buf.endHighlightBatch()
 	if t.EventType == TextEventInsert {
 		for _, d := range t.Deltas {
 			buf.insert(d.Start, d.Text)
@@ -167,6 +169,8 @@ func NewEventHandler(buf *SharedBuffer, cursors []*Cursor) *EventHandler {
 // This means that we can transform the buffer into any string and still preserve undo/redo
 // through insert and delete events
 func (eh *EventHandler) ApplyDiff(new string) {
+	eh.buf.beginHighlightBatch()
+	defer eh.buf.endHighlightBatch()
 	differ := dmp.New()
 	diff := differ.DiffMain(string(eh.buf.Bytes()), new, false)
 	loc := eh.buf.Start()
@@ -232,6 +236,8 @@ func (eh *EventHandler) MultipleReplace(deltas []Delta) {
 
 // Replace deletes from start to end and replaces it with the given string
 func (eh *EventHandler) Replace(start, end Loc, replace string) {
+	eh.buf.beginHighlightBatch()
+	defer eh.buf.endHighlightBatch()
 	eh.Remove(start, end)
 	eh.Insert(start, replace)
 }

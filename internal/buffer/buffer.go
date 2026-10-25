@@ -113,6 +113,13 @@ type SharedBuffer struct {
 
 	// The Highlighter struct actually performs the highlighting
 	Highlighter *highlight.Highlighter
+	// Serialize refreshes, edit notifications and native parser lifecycle.
+	syntaxMu                     sync.Mutex
+	highlightBatch               int
+	highlightDirty               bool
+	syntaxNeedsRefresh           bool
+	highlightStart, highlightEnd int
+	syntaxGeneration             uint64
 	// SyntaxDef represents the syntax highlighting definition being used
 	// This stores the highlighting rules and filetype detection info
 	SyntaxDef *highlight.Def
@@ -124,19 +131,75 @@ type SharedBuffer struct {
 }
 
 func (b *SharedBuffer) insert(pos Loc, value []byte) {
+	b.syntaxMu.Lock()
+	defer b.syntaxMu.Unlock()
 	b.HasSuggestions = false
+	if b.Highlighter != nil {
+		col := runeToByteIndex(pos.X, b.LineBytes(pos.Y))
+		// LineArray.insert treats CRLF as one newline, even in a Unix buffer.
+		normalized := bytes.ReplaceAll(value, []byte("\r\n"), []byte("\n"))
+		b.Highlighter.EditTreeSitter(pos.Y, col, pos.Y, col, normalized)
+	}
+	inslines := bytes.Count(value, []byte{'\n'})
+	b.shiftHighlightDirty(pos.Y, pos.Y, pos.Y+inslines)
 	b.LineArray.insert(pos, value)
 	b.setModified()
-
-	inslines := bytes.Count(value, []byte{'\n'})
-	b.MarkModified(pos.Y, pos.Y+inslines)
+	b.markModifiedLocked(pos.Y, pos.Y+inslines)
 }
 
 func (b *SharedBuffer) remove(start, end Loc) []byte {
+	b.syntaxMu.Lock()
+	defer b.syntaxMu.Unlock()
 	b.HasSuggestions = false
-	defer b.setModified()
-	defer b.MarkModified(start.Y, end.Y)
-	return b.LineArray.remove(start, end)
+	if b.Highlighter != nil {
+		b.Highlighter.EditTreeSitter(start.Y, runeToByteIndex(start.X, b.LineBytes(start.Y)),
+			end.Y, runeToByteIndex(end.X, b.LineBytes(end.Y)), nil)
+	}
+	b.shiftHighlightDirty(start.Y, end.Y, start.Y)
+	removed := b.LineArray.remove(start, end)
+	b.setModified()
+	b.markModifiedLocked(start.Y, end.Y)
+	return removed
+}
+
+// A text event may contain many edits (replacement, multiple cursors, undo).
+// Transform the old tree for every edit, but parse only after the batch.
+// Transform pending regex invalidation rows through a subsequent edit.
+func (b *SharedBuffer) shiftHighlightDirty(start, oldEnd, newEnd int) {
+	if !b.highlightDirty {
+		return
+	}
+	shift := func(row int) int {
+		if row < start {
+			return row
+		}
+		if row > oldEnd {
+			return row + newEnd - oldEnd
+		}
+		return start
+	}
+	b.highlightStart = shift(b.highlightStart)
+	if b.highlightEnd >= start && b.highlightEnd <= oldEnd {
+		b.highlightEnd = newEnd
+	} else {
+		b.highlightEnd = shift(b.highlightEnd)
+	}
+}
+
+func (b *SharedBuffer) beginHighlightBatch() {
+	b.syntaxMu.Lock()
+	b.highlightBatch++
+	b.syntaxMu.Unlock()
+}
+
+func (b *SharedBuffer) endHighlightBatch() {
+	b.syntaxMu.Lock()
+	defer b.syntaxMu.Unlock()
+	b.highlightBatch--
+	if b.highlightBatch == 0 && b.highlightDirty {
+		b.rehighlightLocked(b.highlightStart, b.highlightEnd)
+		b.highlightDirty = false
+	}
 }
 
 func (b *SharedBuffer) setModified() {
@@ -183,21 +246,64 @@ func (b *SharedBuffer) calcHash(out *[md5.Size]byte) {
 // MarkModified marks the buffer as modified for this frame
 // and performs rehighlighting if syntax highlighting is enabled
 func (b *SharedBuffer) MarkModified(start, end int) {
-	b.ModifiedThisFrame = true
+	b.syntaxMu.Lock()
+	defer b.syntaxMu.Unlock()
+	// Callers outside insert/remove have no exact edit description (e.g. a plugin mutation).
+	// Never reuse a tree whose coordinates may no longer match the document.
+	if b.Highlighter != nil {
+		b.Highlighter.ResetTreeSitter()
+	}
+	b.markModifiedLocked(start, end)
+}
 
+func (b *SharedBuffer) markModifiedLocked(start, end int) {
+	b.ModifiedThisFrame = true
 	start = util.Clamp(start, 0, len(b.lines)-1)
 	end = util.Clamp(end, 0, len(b.lines)-1)
+	for i := start; i <= end; i++ {
+		b.LineArray.invalidateSearchMatches(i)
+	}
+	if b.highlightBatch > 0 {
+		if !b.highlightDirty {
+			b.highlightStart, b.highlightEnd = start, end
+		} else {
+			b.highlightStart = util.Min(b.highlightStart, start)
+			b.highlightEnd = util.Max(b.highlightEnd, end)
+		}
+		b.highlightDirty = true
+		return
+	}
+	b.rehighlightLocked(start, end)
+}
 
+// EnsureHighlights is called before a window reads line colours. Offscreen
+// Tree-sitter matches may be stale; they must not be consumed without this call.
+// A failed native attempt uses regex until the next edit or configuration change.
+func (b *SharedBuffer) EnsureHighlights(first, last int) {
+	b.syntaxMu.Lock()
+	defer b.syntaxMu.Unlock()
+	if !b.Settings["syntax"].(bool) || b.Highlighter == nil || !b.Highlighter.TreeSitter || first > last {
+		return
+	}
+	if b.syntaxNeedsRefresh || b.Highlighter.TreeSitterActive() {
+		b.Highlighter.HighlightMatches(b, first, last)
+		b.syntaxNeedsRefresh = false
+	}
+}
+
+func (b *SharedBuffer) rehighlightLocked(start, end int) {
+	if b.Highlighter != nil && b.Highlighter.TreeSitter {
+		b.syntaxNeedsRefresh = true
+		return // Parsing and queries are coalesced until a view needs colours.
+	}
+	start = util.Clamp(start, 0, len(b.lines)-1)
+	end = util.Clamp(end, 0, len(b.lines)-1)
 	if b.Settings["syntax"].(bool) && b.SyntaxDef != nil {
 		l := -1
 		for i := start; i <= end; i++ {
 			l = util.Max(b.Highlighter.ReHighlightStates(b, i), l)
 		}
 		b.Highlighter.HighlightMatches(b, start, l)
-	}
-
-	for i := start; i <= end; i++ {
-		b.LineArray.invalidateSearchMatches(i)
 	}
 }
 
@@ -529,6 +635,13 @@ func (b *Buffer) Close() {
 // some cleanup
 func (b *Buffer) Fini() {
 	if !b.Shared() {
+		b.syntaxMu.Lock()
+		if b.Highlighter != nil {
+			b.Highlighter.ResetTreeSitter()
+			b.Highlighter = nil
+		}
+		b.syntaxGeneration++
+		b.syntaxMu.Unlock()
 		if !b.Modified() {
 			b.Serialize()
 		}
@@ -821,12 +934,15 @@ func resolveIncludes(syndef *highlight.Def) {
 // UpdateRules updates the syntax rules and filetype for this buffer
 // This is called when the colorscheme changes
 func (b *Buffer) UpdateRules() {
+	b.syntaxMu.Lock()
+	defer b.syntaxMu.Unlock()
+	b.syntaxGeneration++
 	if !b.Type.Syntax {
 		return
 	}
 	ft := b.Settings["filetype"].(string)
 	if ft == "off" {
-		b.ClearMatches()
+		b.clearMatchesLocked()
 		b.SyntaxDef = nil
 		return
 	}
@@ -1005,19 +1121,62 @@ func (b *Buffer) UpdateRules() {
 	}
 
 	if b.SyntaxDef != nil {
-		b.Highlighter = highlight.NewHighlighter(b.SyntaxDef)
+		enabled, _ := b.Settings["treesitter"].(bool)
+		filetype, _ := b.Settings["filetype"].(string)
+		// An unavailable grammar uses the ordinary incremental regex path.
+		// Language registration calls UpdateRules again for existing buffers.
+		enabled = enabled && highlight.TreeSitterAvailable(filetype)
+		if b.Highlighter == nil || b.Highlighter.Def.FileType != b.SyntaxDef.FileType {
+			if b.Highlighter != nil {
+				b.Highlighter.ResetTreeSitter()
+			}
+			b.Highlighter = highlight.NewHighlighter(b.SyntaxDef)
+		} else {
+			b.Highlighter.Def = b.SyntaxDef
+		}
+		h := b.Highlighter
+		h.TreeSitter = enabled
+		h.TreeSitterFiletype = filetype
+		h.RefreshTreeSitter()
+		if !enabled {
+			h.ResetTreeSitter()
+		}
 		if b.Settings["syntax"].(bool) {
-			go func() {
-				b.Highlighter.HighlightStates(b)
-				b.Highlighter.HighlightMatches(b, 0, b.End().Y)
+			refresh := func() {
+				h.HighlightStates(b)
+				h.HighlightMatches(b, 0, b.End().Y)
 				screen.Redraw()
-			}()
+			}
+			if enabled {
+				b.syntaxNeedsRefresh = true
+				screen.Redraw()
+			} else {
+				// Serialize the legacy asynchronous refresh with edits and reconfiguration.
+				generation := b.syntaxGeneration
+				go func() {
+					b.syntaxMu.Lock()
+					defer b.syntaxMu.Unlock()
+					if b.syntaxGeneration == generation && b.Highlighter == h && !h.TreeSitter && b.SyntaxDef != nil {
+						refresh()
+					}
+				}()
+			}
 		}
 	}
 }
 
 // ClearMatches clears all of the syntax highlighting for the buffer
 func (b *Buffer) ClearMatches() {
+	b.syntaxMu.Lock()
+	defer b.syntaxMu.Unlock()
+	b.clearMatchesLocked()
+}
+
+func (b *Buffer) clearMatchesLocked() {
+	b.syntaxGeneration++
+	if b.Highlighter != nil {
+		b.Highlighter.ResetTreeSitter()
+	}
 	for i := range b.lines {
 		b.SetMatch(i, nil)
 		b.SetState(i, nil)
@@ -1269,6 +1428,8 @@ func (b *Buffer) FindMatchingBrace(start Loc) (Loc, bool, bool) {
 
 // Retab changes all tabs to spaces or vice versa
 func (b *Buffer) Retab() {
+	b.beginHighlightBatch()
+	defer b.endHighlightBatch()
 	toSpaces := b.Settings["tabstospaces"].(bool)
 	tabsize := util.IntOpt(b.Settings["tabsize"])
 
@@ -1286,11 +1447,16 @@ func (b *Buffer) Retab() {
 
 		l = bytes.TrimLeft(l, " \t")
 
+		replacement := append(append([]byte(nil), ws...), l...)
+		b.syntaxMu.Lock()
+		if b.Highlighter != nil {
+			b.Highlighter.EditTreeSitter(i, 0, i, len(b.lines[i].data), replacement)
+		}
 		b.Lock()
-		b.lines[i].data = append(ws, l...)
+		b.lines[i].data = replacement
 		b.Unlock()
-
-		b.MarkModified(i, i)
+		b.markModifiedLocked(i, i)
+		b.syntaxMu.Unlock()
 	}
 
 	b.setModified()

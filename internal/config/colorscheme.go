@@ -6,6 +6,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/micro-editor/micro/v2/pkg/highlight"
 	"github.com/micro-editor/tcell/v2"
 )
 
@@ -14,6 +15,26 @@ var DefStyle tcell.Style = tcell.StyleDefault
 
 // Colorscheme is the current colorscheme
 var Colorscheme map[string]tcell.Style
+
+// GetSyntaxColor resolves exact capture styles, then their dotted parents,
+// then the original micro group. No fallback styles are inserted into the theme,
+// so changing themes cannot retain stale capture colours.
+func GetSyntaxColor(group highlight.Group) tcell.Style {
+	if fallback := group.Fallback(); fallback != group {
+		for name := group.String(); ; {
+			if style, ok := Colorscheme[name]; ok {
+				return style
+			}
+			dot := strings.LastIndexByte(name, '.')
+			if dot < 0 {
+				break
+			}
+			name = name[:dot]
+		}
+		return GetColor(fallback.String())
+	}
+	return GetColor(group.String())
+}
 
 // GetColor takes in a syntax group and returns the colorscheme's style for that group
 func GetColor(color string) tcell.Style {

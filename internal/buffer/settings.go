@@ -92,6 +92,8 @@ func (b *Buffer) DoSetOptionNative(option string, nativeValue any) {
 			b.Endings = FFDos
 		}
 		b.setModified()
+	} else if option == "treesitter" {
+		b.UpdateRules()
 	} else if option == "syntax" {
 		if !nativeValue.(bool) {
 			b.ClearMatches()

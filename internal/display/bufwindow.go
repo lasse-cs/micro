@@ -363,7 +363,7 @@ func (w *BufWindow) drawLineNum(lineNumStyle tcell.Style, softwrapped bool, vloc
 // If there is no change to the current highlight style it just returns that
 func (w *BufWindow) getStyle(style tcell.Style, bloc buffer.Loc) (tcell.Style, bool) {
 	if group, ok := w.Buf.Match(bloc.Y)[bloc.X]; ok {
-		s := config.GetColor(group.String())
+		s := config.GetSyntaxColor(group)
 		return s, true
 	}
 	return style, false
@@ -385,6 +385,13 @@ func (w *BufWindow) displayBuffer() {
 
 	if w.Height <= 0 || w.Width <= 0 {
 		return
+	}
+
+	// Scroll accounts for wrapped screen rows. Each split prepares its own range;
+	// the shared buffer reuses the parse tree and revision-valid line colours.
+	if w.bufHeight > 0 {
+		last := w.Scroll(w.StartLine, w.bufHeight-1).Line
+		b.EnsureHighlights(w.StartLine.Line, last)
 	}
 
 	maxWidth := w.gutterOffset + w.bufWidth
