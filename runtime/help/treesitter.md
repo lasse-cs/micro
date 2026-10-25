@@ -22,7 +22,8 @@ After a failure, an edit or configuration change permits another native attempt.
 
 ## Registering languages from Lua
 
-On Linux, plugins can load native parser libraries and self-contained queries:
+On Linux and macOS, plugins can load native parser libraries and self-contained
+queries:
 
 ```lua
 local ts = import("micro/treesitter")
@@ -40,6 +41,13 @@ be absolute regular files. Parsers must match the host architecture and supporte
 Tree-sitter ABI. The optional `symbol` field overrides `tree_sitter_<name>`.
 Native parsers execute inside micro; load trusted libraries only. Micro does not
 download or build them.
+
+On macOS, install Apple's Command Line Tools (`xcode-select --install`) to obtain
+the compiler. Build parsers as Mach-O dynamic libraries using `cc -dynamiclib`
+rather than Linux's `-shared`. Both `.dylib` and `.so` filenames work with the
+loader; a `.so` suffix can preserve existing plugin registration paths. Build for
+the same architecture as micro (`arm64` on Apple Silicon or `x86_64` on Intel),
+and rebuild Linux parser binaries before using them on a Mac.
 
 Filetypes are micro filetype names; registration does not add filename detection
 or enable the setting. Registering the same language again replaces its filetype

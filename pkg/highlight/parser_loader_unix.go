@@ -1,9 +1,9 @@
-//go:build treesitter && cgo && linux
+//go:build treesitter && cgo && (linux || darwin)
 
 package highlight
 
 /*
-#cgo LDFLAGS: -ldl
+#cgo linux LDFLAGS: -ldl
 #include <dlfcn.h>
 #include <stdlib.h>
 #include <string.h>

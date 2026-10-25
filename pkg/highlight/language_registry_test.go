@@ -1,4 +1,4 @@
-//go:build treesitter && cgo && linux
+//go:build treesitter && cgo && (linux || darwin)
 
 package highlight
 
@@ -7,6 +7,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"reflect"
+	"runtime"
 	"strings"
 	"testing"
 )
@@ -170,7 +171,16 @@ func TestExternalBadABI(t *testing.T) {
 	if compiler == "" {
 		compiler = "cc"
 	}
-	if output, err := exec.Command(compiler, "-shared", "-fPIC", source, "-o", library).CombinedOutput(); err != nil {
+	flags := []string{"-shared", "-fPIC"}
+	if runtime.GOOS == "darwin" {
+		arch := runtime.GOARCH
+		if arch == "amd64" {
+			arch = "x86_64"
+		}
+		flags = []string{"-dynamiclib", "-fPIC", "-arch", arch}
+	}
+	flags = append(flags, source, "-o", library)
+	if output, err := exec.Command(compiler, flags...).CombinedOutput(); err != nil {
 		t.Fatalf("compile ABI fixture: %v: %s", err, output)
 	}
 	spec.Parser = library
