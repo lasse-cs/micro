@@ -33,6 +33,8 @@ func LuaImport(pkg string) *lua.LTable {
 		return luaImportMicroBuffer()
 	case "micro/config":
 		return luaImportMicroConfig()
+	case "micro/treesitter":
+		return luaImportMicroTreeSitter()
 	case "micro/util":
 		return luaImportMicroUtil()
 	default:
