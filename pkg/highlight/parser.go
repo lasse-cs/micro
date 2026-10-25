@@ -10,7 +10,7 @@ import (
 )
 
 // A Group represents a syntax group
-type Group uint8
+type Group uint32
 
 // Groups contains all of the groups that are defined
 // You can access them in the map via their string name
@@ -19,6 +19,9 @@ var numGroups Group
 
 // String returns the group name attached to the specific group
 func (g Group) String() string {
+	if style, ok := g.captureStyle(); ok {
+		return style.name
+	}
 	for k, v := range Groups {
 		if v == g {
 			return k
@@ -90,6 +93,7 @@ type region struct {
 
 func init() {
 	Groups = make(map[string]Group)
+	initTreeSitterGroups()
 }
 
 // MakeHeader takes a header (.hdr file) file and parses the header

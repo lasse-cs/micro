@@ -69,7 +69,17 @@ type LineStates interface {
 type Highlighter struct {
 	lastRegion *region
 	Def        *Def
+	// TreeSitter opts into the experimental backend when compiled in.
+	TreeSitter bool
+	// TreeSitterFiletype separates parser selection from the regex fallback definition.
+	TreeSitterFiletype string
+	treeSitterActive   bool
+	treeSitter         *treeSitterState
 }
+
+// TreeSitterActive reports which backend supplied the current highlights.
+// Like other Highlighter methods, callers must serialize access.
+func (h *Highlighter) TreeSitterActive() bool { return h.treeSitterActive }
 
 // NewHighlighter returns a new highlighter from the given syntax definition
 func NewHighlighter(def *Def) *Highlighter {
@@ -311,9 +321,21 @@ func (h *Highlighter) HighlightStates(input LineStates) {
 }
 
 // HighlightMatches sets the matches for each line from startline to endline
-// It sets all other matches in the buffer to nil to conserve memory
+// Tree-sitter results outside this range may be stale until requested again.
 // This assumes that all the states are set correctly
 func (h *Highlighter) HighlightMatches(input LineStates, startline, endline int) {
+	if h.TreeSitter && h.highlightTreeSitter(input, startline, endline) {
+		h.treeSitterActive = true
+		return
+	}
+	h.ResetTreeSitter()
+	if h.TreeSitter || h.treeSitterActive {
+		// A backend change (for example crossing the size limit) must replace
+		// every old Tree-sitter match, not just the edited lines.
+		h.treeSitterActive = false
+		h.HighlightStates(input)
+		startline, endline = 0, input.LinesNum()-1
+	}
 	for i := startline; i <= endline; i++ {
 		input.Lock()
 		if i >= input.LinesNum() {
