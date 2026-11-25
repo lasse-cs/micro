@@ -187,9 +187,6 @@ func RegisterTreeSitterLanguage(spec TreeSitterLanguageSpec) error {
 	languageRegistry.Lock()
 	defer languageRegistry.Unlock()
 	for _, ft := range spec.Filetypes {
-		if ft == "go" && spec.Name != "go" {
-			return fmt.Errorf("filetype go is reserved for language go")
-		}
 		if old := languageRegistry.filetypes[ft]; old != nil && old.name != spec.Name {
 			return fmt.Errorf("filetype %q is already registered to %s", ft, old.name)
 		}
@@ -210,7 +207,7 @@ func RegisterTreeSitterLanguage(spec TreeSitterLanguageSpec) error {
 func TreeSitterLanguages() []string {
 	languageRegistry.RLock()
 	defer languageRegistry.RUnlock()
-	names := map[string]bool{"go": true}
+	names := make(map[string]bool)
 	for _, reg := range languageRegistry.filetypes {
 		names[reg.name] = true
 	}
@@ -222,36 +219,14 @@ func TreeSitterLanguages() []string {
 	return result
 }
 
-var builtinOnce sync.Once
-var builtinGo *registeredLanguage
-
 // TreeSitterAvailable reports whether this build has a usable grammar and query
-// registered for filetype, including bundled languages.
+// registered for filetype.
 func TreeSitterAvailable(filetype string) bool {
 	return lookupLanguage(filetype) != nil
 }
 
 func lookupLanguage(filetype string) *registeredLanguage {
 	languageRegistry.RLock()
-	reg := languageRegistry.filetypes[filetype]
-	languageRegistry.RUnlock()
-	if reg != nil {
-		return reg
-	}
-	if filetype != "go" {
-		return nil
-	}
-	builtinOnce.Do(func() {
-		q := compiledGoQuery()
-		if q != nil {
-			groups, err := captureGroups(q, map[string]string{
-				"keyword.control": "special", "keyword.conditional": "statement",
-				"keyword.declaration": "preproc", "function.builtin.print": "special",
-			})
-			if err == nil {
-				builtinGo = &registeredLanguage{name: "go", language: goLanguage, query: q, groups: groups}
-			}
-		}
-	})
-	return builtinGo
+	defer languageRegistry.RUnlock()
+	return languageRegistry.filetypes[filetype]
 }

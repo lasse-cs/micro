@@ -12,6 +12,9 @@ of modern terminals. It comes as a single, batteries-included, static binary wit
 As its name indicates, micro aims to be somewhat of a successor to the nano editor by being easy to install and use.
 It strives to be enjoyable as a full-time editor for people who prefer to work in a terminal, or those who regularly edit files over SSH.
 
+This fork also offers [experimental Tree-sitter highlighting](runtime/help/treesitter.md)
+with parsers and queries supplied by plugins.
+
 Here is a picture of micro editing its source code.
 
 ![Screenshot](./assets/micro-solarized.png)

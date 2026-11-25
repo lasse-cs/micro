@@ -10,12 +10,17 @@ import (
 	"github.com/micro-editor/micro/v2/internal/config"
 	ulua "github.com/micro-editor/micro/v2/internal/lua"
 	"github.com/micro-editor/micro/v2/internal/screen"
+	"github.com/micro-editor/micro/v2/internal/tstest"
 	"github.com/micro-editor/micro/v2/pkg/highlight"
 	"github.com/micro-editor/tcell/v2"
 	lua "github.com/yuin/gopher-lua"
 )
 
 func TestTreeSitterViewportDisplay(t *testing.T) {
+	parser, query := tstest.GoFixture(t)
+	if err := highlight.RegisterTreeSitterLanguage(highlight.TreeSitterLanguageSpec{Name: "go", Filetypes: []string{"go"}, Parser: parser, Highlights: query}); err != nil {
+		t.Fatal(err)
+	}
 	ulua.L = lua.NewState()
 	defer ulua.L.Close()
 	config.InitRuntimeFiles(false)

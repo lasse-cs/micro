@@ -4,36 +4,14 @@ package highlight
 
 import (
 	"bytes"
-	_ "embed"
 	"sort"
-	"sync"
 	"time"
 
 	ts "github.com/tree-sitter/go-tree-sitter"
-	tsg "github.com/tree-sitter/tree-sitter-go/bindings/go"
 )
-
-//go:embed queries/go.scm
-var goHighlightQuery string
 
 // Keep the prototype memory/latency cap, including cold parses and fallback.
 const treeSitterMaxBytes = 256 * 1024
-
-// The immutable query is shared for the process lifetime. Each document owns
-// its parser/tree; query cursors are short lived.
-var goQueryOnce sync.Once
-var goQuery *ts.Query
-var goLanguage = ts.NewLanguage(tsg.Language())
-
-func compiledGoQuery() *ts.Query {
-	goQueryOnce.Do(func() {
-		query, err := ts.NewQuery(goLanguage, goHighlightQuery)
-		if err == nil {
-			goQuery = query
-		}
-	})
-	return goQuery
-}
 
 func initTreeSitterGroups() {
 	treeSitterGroups = map[string]Group{"default": 0}

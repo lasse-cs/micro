@@ -11,10 +11,22 @@ import (
 	"testing"
 
 	"github.com/micro-editor/micro/v2/internal/config"
+	"github.com/micro-editor/micro/v2/internal/tstest"
 	"github.com/micro-editor/micro/v2/pkg/highlight"
 )
 
+func requireGoParser(t testing.TB) {
+	t.Helper()
+	if !highlight.TreeSitterAvailable("go") {
+		parser, query := tstest.GoFixture(t)
+		if err := highlight.RegisterTreeSitterLanguage(highlight.TreeSitterLanguageSpec{Name: "go", Filetypes: []string{"go"}, Parser: parser, Highlights: query}); err != nil {
+			t.Fatal(err)
+		}
+	}
+}
+
 func TestTreeSitterEditing(t *testing.T) {
+	requireGoParser(t)
 	old := config.GlobalSettings["treesitter"]
 	config.GlobalSettings["treesitter"] = true
 	defer func() { config.GlobalSettings["treesitter"] = old }()
@@ -87,6 +99,7 @@ func assertTreeSitterFresh(t *testing.T, b *Buffer) {
 }
 
 func TestTreeSitterEditSequences(t *testing.T) {
+	requireGoParser(t)
 	old := config.GlobalSettings["treesitter"]
 	config.GlobalSettings["treesitter"] = true
 	defer func() { config.GlobalSettings["treesitter"] = old }()
@@ -132,6 +145,7 @@ func TestTreeSitterEditSequences(t *testing.T) {
 }
 
 func TestTreeSitterBatchedReplacementAndSharedView(t *testing.T) {
+	requireGoParser(t)
 	old := config.GlobalSettings["treesitter"]
 	config.GlobalSettings["treesitter"] = true
 	defer func() { config.GlobalSettings["treesitter"] = old }()
@@ -164,6 +178,7 @@ func TestTreeSitterBatchedReplacementAndSharedView(t *testing.T) {
 }
 
 func BenchmarkTreeSitterBufferEdit(b *testing.B) {
+	requireGoParser(b)
 	old := config.GlobalSettings["treesitter"]
 	config.GlobalSettings["treesitter"] = true
 	defer func() { config.GlobalSettings["treesitter"] = old }()
@@ -178,6 +193,7 @@ func BenchmarkTreeSitterBufferEdit(b *testing.B) {
 }
 
 func TestTreeSitterToggleWhileRegexRefreshQueued(t *testing.T) {
+	requireGoParser(t)
 	old := config.GlobalSettings["treesitter"]
 	config.GlobalSettings["treesitter"] = false
 	defer func() { config.GlobalSettings["treesitter"] = old }()
@@ -203,6 +219,7 @@ func TestTreeSitterToggleWhileRegexRefreshQueued(t *testing.T) {
 }
 
 func TestTreeSitterViewportFallback(t *testing.T) {
+	requireGoParser(t)
 	old := config.GlobalSettings["treesitter"]
 	config.GlobalSettings["treesitter"] = true
 	defer func() { config.GlobalSettings["treesitter"] = old }()

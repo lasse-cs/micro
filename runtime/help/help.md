@@ -51,6 +51,8 @@ Here are the available help topics:
    plugins
 * `colors`: Explains micro's colorscheme and syntax highlighting engine and how
    to create your own colorschemes or add new languages to the engine
+* `treesitter`: Covers the optional Tree-sitter build, language plugins and
+   capture styles
 * `copypaste`: Explains micro's copy and paste usage and configuration.
    It describes how copy and paste is working on different operating systems and
    setups.

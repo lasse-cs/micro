@@ -12,8 +12,8 @@ if you have set either of the above environment variables).
 Here are the available options:
 
 * `treesitter`: opt into experimental Tree-sitter highlighting. Requires a build
-   with `CGO_ENABLED=1` and `-tags treesitter`. Go is bundled; plugins can register
-   other languages on Linux and macOS. Missing grammars and builds without the
+   with `CGO_ENABLED=1` and `-tags treesitter`. Plugins register each language
+   on Linux and macOS; no grammar is bundled. Missing grammars and builds without the
    backend use normal incremental regex highlighting. Files over 256 KiB and parser/query
    failures also fall back to regex. Edits are parsed incrementally and visible
    lines are highlighted on redraw. `syntax` must also be enabled. Disable this

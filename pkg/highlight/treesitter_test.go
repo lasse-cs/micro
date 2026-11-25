@@ -8,6 +8,8 @@ import (
 	"strings"
 	"sync"
 	"testing"
+
+	"github.com/micro-editor/micro/v2/internal/tstest"
 )
 
 type testLines struct {
@@ -30,7 +32,21 @@ func (b *testLines) LinesNum() int               { return len(b.lines) }
 func (b *testLines) State(n int) State           { return b.states[n] }
 func (b *testLines) SetState(n int, s State)     { b.states[n] = s }
 func (b *testLines) SetMatch(n int, m LineMatch) { b.matches[n] = m }
-func testHighlighter(t testing.TB) *Highlighter {
+func goTestHighlighter(t testing.TB) *Highlighter {
+	t.Helper()
+	if !TreeSitterAvailable("go") {
+		parser, query := tstest.GoFixture(t)
+		err := RegisterTreeSitterLanguage(TreeSitterLanguageSpec{
+			Name: "go", Filetypes: []string{"go"}, Parser: parser, Highlights: query,
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+	return nativeTestHighlighter(t)
+}
+
+func nativeTestHighlighter(t testing.TB) *Highlighter {
 	t.Helper()
 	data, err := os.ReadFile("../../runtime/syntax/go.yaml")
 	if err != nil {
@@ -74,7 +90,7 @@ func assertToken(t *testing.T, b *testLines, row int, token, group string) {
 	}
 }
 func TestTreeSitterGo(t *testing.T) {
-	h := testHighlighter(t)
+	h := goTestHighlighter(t)
 	b := newTestLines("package main\nfunc café() {\n\t变量 := `héllo\nworld`\n\tprintln(变量) // comment\n\t_ = \"é🙂\"; café()\n\t_ = \"a\\nb\"\n}\n")
 	h.HighlightStates(b)
 	h.HighlightMatches(b, 0, b.LinesNum()-1)
@@ -99,7 +115,7 @@ func TestTreeSitterGo(t *testing.T) {
 		}
 		return s
 	}(), "\n"))
-	other := testHighlighter(t)
+	other := goTestHighlighter(t)
 	other.HighlightStates(fresh)
 	other.HighlightMatches(fresh, 0, fresh.LinesNum()-1)
 	h.HighlightMatches(b, 0, b.LinesNum()-1) // Simulate visiting all rows before comparison.
@@ -110,7 +126,7 @@ func TestTreeSitterGo(t *testing.T) {
 func TestTreeSitterFallback(t *testing.T) {
 	for _, reason := range []string{"disabled", "size", "unsupported"} {
 		t.Run(reason, func(t *testing.T) {
-			h := testHighlighter(t)
+			h := goTestHighlighter(t)
 			b := newTestLines("package main\nfunc f() {}\n// tail")
 			h.HighlightStates(b)
 			h.HighlightMatches(b, 0, 2)
@@ -141,7 +157,7 @@ func TestTreeSitterFallback(t *testing.T) {
 	}
 }
 func BenchmarkTreeSitterGo(b *testing.B) {
-	h := testHighlighter(b)
+	h := goTestHighlighter(b)
 	lines := newTestLines("package main\n" + strings.Repeat("func f() { println(123) }\n", 400))
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
@@ -153,7 +169,7 @@ func BenchmarkTreeSitterGo(b *testing.B) {
 }
 
 func TestTreeSitterIncrementalReuse(t *testing.T) {
-	h := testHighlighter(t)
+	h := goTestHighlighter(t)
 	b := newTestLines("package main\n" + strings.Repeat("func f() { foo(123) }\n", 80))
 	h.HighlightStates(b)
 	h.HighlightMatches(b, 0, b.LinesNum()-1)
@@ -186,7 +202,7 @@ func TestTreeSitterIncrementalReuse(t *testing.T) {
 		}
 		return lines
 	}(), "\n"))
-	full := testHighlighter(t)
+	full := goTestHighlighter(t)
 	full.HighlightStates(fresh)
 	full.HighlightMatches(fresh, 0, fresh.LinesNum()-1)
 	h.HighlightMatches(b, 0, b.LinesNum()-1) // Simulate visiting all rows before comparison.
@@ -206,7 +222,7 @@ func TestTreeSitterIncrementalReuse(t *testing.T) {
 }
 
 func BenchmarkTreeSitterIncremental(b *testing.B) {
-	h := testHighlighter(b)
+	h := goTestHighlighter(b)
 	lines := newTestLines("package main\n" + strings.Repeat("func f() { foo(123) }\n", 400))
 	h.HighlightMatches(lines, 0, lines.LinesNum()-1)
 	if h.treeSitter == nil {
@@ -228,7 +244,7 @@ func BenchmarkTreeSitterIncremental(b *testing.B) {
 }
 
 func TestTreeSitterFallbackRecovery(t *testing.T) {
-	h := testHighlighter(t)
+	h := goTestHighlighter(t)
 	b := newTestLines("package main\nfunc f() {}\n// end")
 	h.HighlightStates(b)
 	h.HighlightMatches(b, 0, 2)
@@ -255,7 +271,7 @@ func TestTreeSitterFallbackRecovery(t *testing.T) {
 // Same source and edits as BenchmarkTreeSitterIncremental, but deliberately
 // discard cached state to measure the full-parse/full-highlight control.
 func BenchmarkTreeSitterFullEdit(b *testing.B) {
-	h := testHighlighter(b)
+	h := goTestHighlighter(b)
 	lines := newTestLines("package main\n" + strings.Repeat("func f() { foo(123) }\n", 400))
 	fallbacks := 0
 	b.ResetTimer()
@@ -278,7 +294,7 @@ func BenchmarkTreeSitterFullEdit(b *testing.B) {
 // classification without touching any visible row. Exercise both viewports and
 // compare each visited range with an independent full query.
 func TestTreeSitterViewportCache(t *testing.T) {
-	h := testHighlighter(t)
+	h := goTestHighlighter(t)
 	b := newTestLines("package main\n/*\n" + strings.Repeat("func f() { foo(123) }\n", 100) + "*/\n")
 	h.HighlightMatches(b, 40, 49)
 	s := h.treeSitter
@@ -318,7 +334,7 @@ func TestTreeSitterViewportCache(t *testing.T) {
 		lines = append(lines, string(line))
 	}
 	fresh := newTestLines(strings.Join(lines, "\n"))
-	other := testHighlighter(t)
+	other := goTestHighlighter(t)
 	other.HighlightMatches(fresh, 0, fresh.LinesNum()-1)
 	for _, r := range [][2]int{{40, 49}, {80, 84}} {
 		for row := r[0]; row <= r[1]; row++ {
@@ -330,7 +346,7 @@ func TestTreeSitterViewportCache(t *testing.T) {
 }
 
 func BenchmarkTreeSitterViewportEdit(b *testing.B) {
-	h := testHighlighter(b)
+	h := goTestHighlighter(b)
 	lines := newTestLines("package main\n" + strings.Repeat("func f() { foo(123) }\n", 400))
 	h.HighlightMatches(lines, 180, 219)
 	fallbacks := 0

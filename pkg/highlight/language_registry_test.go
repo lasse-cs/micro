@@ -47,7 +47,7 @@ func TestExternalLanguages(t *testing.T) {
 				code = "function greet(name) { return name; }\ngreet('Ada');"
 				row = 1
 			}
-			h := testHighlighter(t)
+			h := nativeTestHighlighter(t)
 			h.Def.FileType = spec.Filetypes[0]
 			b := newTestLines(code)
 			h.HighlightStates(b)
@@ -72,7 +72,7 @@ func TestExternalLanguages(t *testing.T) {
 				text = append(text, string(line))
 			}
 			fresh := newTestLines(strings.Join(text, "\n"))
-			other := testHighlighter(t)
+			other := nativeTestHighlighter(t)
 			other.Def.FileType = spec.Filetypes[0]
 			other.HighlightStates(fresh)
 			other.HighlightMatches(fresh, 0, fresh.LinesNum()-1)
@@ -147,7 +147,7 @@ func TestExternalRegistrationErrorsAreAtomic(t *testing.T) {
 	if err := RegisterTreeSitterLanguage(good); err != nil {
 		t.Fatal(err)
 	}
-	h := testHighlighter(t)
+	h := nativeTestHighlighter(t)
 	h.Def.FileType = good.Filetypes[0]
 	b := newTestLines("hello()")
 	h.HighlightMatches(b, 0, 0)
@@ -202,7 +202,7 @@ func TestExternalHTMLCSSViewport(t *testing.T) {
 			if err := RegisterTreeSitterLanguage(spec); err != nil {
 				t.Fatal(err)
 			}
-			h := testHighlighter(t)
+			h := nativeTestHighlighter(t)
 			h.Def.FileType = spec.Filetypes[0]
 			b := newTestLines(tc.code)
 			h.HighlightMatches(b, tc.row, tc.row)
@@ -229,7 +229,7 @@ func TestExternalHTMLCSSViewport(t *testing.T) {
 				lines = append(lines, string(line))
 			}
 			fresh := newTestLines(strings.Join(lines, "\n"))
-			other := testHighlighter(t)
+			other := nativeTestHighlighter(t)
 			other.Def.FileType = spec.Filetypes[0]
 			other.HighlightMatches(fresh, 0, fresh.LinesNum()-1)
 			h.HighlightMatches(b, 0, b.LinesNum()-1)

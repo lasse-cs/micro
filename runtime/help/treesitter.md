@@ -6,12 +6,12 @@ with Go 1.23+, a C compiler, and CGo enabled:
 ```sh
 go generate ./runtime
 CGO_ENABLED=1 go build -tags treesitter -o micro ./cmd/micro
-./micro -treesitter true example.go
 ```
 
 In micro, use `set treesitter true` to enable it or `set treesitter false` to
-restore regex highlighting. The `syntax` option must also be enabled. Go's
-grammar and query are bundled. Missing grammars, including builds without this
+restore regex highlighting. The `syntax` option must also be enabled. No grammar
+is bundled. Install a language plugin that registers a parser for your
+filetype, then run `./micro -treesitter true filename`. Missing grammars, including builds without this
 backend, use the normal incremental regex path.
 
 Each shared buffer retains a parse tree across edits. Highlight queries run for
@@ -19,6 +19,8 @@ visible logical lines on redraw; split views share the tree and cached results.
 Files over 256 KiB of normalized source and parser/query failures use regex.
 Parsing and queries each have a 20 ms budget, not a strict total redraw limit.
 After a failure, an edit or configuration change permits another native attempt.
+Very long wrapped lines can still be expensive: the query covers the whole
+logical line, even if only part of it fits on screen.
 
 ## Registering languages from Lua
 

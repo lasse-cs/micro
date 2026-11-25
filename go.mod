@@ -14,7 +14,6 @@ require (
 	github.com/sergi/go-diff v1.1.0
 	github.com/stretchr/testify v1.10.0
 	github.com/tree-sitter/go-tree-sitter v0.25.0
-	github.com/tree-sitter/tree-sitter-go v0.25.0
 	github.com/yuin/gopher-lua v1.1.1
 	github.com/zyedidia/clipper v0.1.1
 	github.com/zyedidia/glob v0.0.0-20170209203856-dd4023a66dc3
