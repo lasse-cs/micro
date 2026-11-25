@@ -239,3 +239,61 @@ func TestExternalHTMLCSSViewport(t *testing.T) {
 		})
 	}
 }
+
+func TestHTMLInjections(t *testing.T) {
+	for _, name := range []string{"html", "css", "javascript"} {
+		if err := RegisterTreeSitterLanguage(externalSpec(t, name)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	h := nativeTestHighlighter(t)
+	h.Def.FileType = "external-html"
+	b := newTestLines("<style>\n.card { color: red }\n</style>é<script>hello()</script><b>plain</b>")
+	h.HighlightMatches(b, 1, 1)
+	assertToken(t, b, 1, "color", "type")
+	if b.matches[2] != nil {
+		t.Fatal("injection painted outside viewport")
+	}
+	h.HighlightMatches(b, 2, 2)
+	assertToken(t, b, 2, "hello", "identifier")
+	assertToken(t, b, 2, "script", "symbol.tag")
+	assertToken(t, b, 2, "plain", "default")
+	// Changing the host delimiter invalidates the old child colours, even
+	// though the embedded line itself was not edited.
+	h.EditTreeSitter(0, 1, 0, 6, []byte("div"))
+	b.lines[0] = []byte("<div>")
+	h.HighlightMatches(b, 1, 1)
+	assertToken(t, b, 1, "color", "default")
+	if !h.TreeSitterActive() {
+		t.Fatal("host backend fell back after editing injection boundary")
+	}
+}
+
+func TestCustomInjections(t *testing.T) {
+	host := externalSpec(t, "html")
+	host.Injections = filepath.Join(t.TempDir(), "injections.scm")
+	rules := `((style_element (raw_text) @injection.content) (#set! injection.language "javascript"))
+((script_element (raw_text) @injection.content) (#set! injection.language "unregistered"))`
+	if err := os.WriteFile(host.Injections, []byte(rules), 0600); err != nil {
+		t.Fatal(err)
+	}
+	js := externalSpec(t, "javascript")
+	for _, spec := range []TreeSitterLanguageSpec{js, host} {
+		if err := RegisterTreeSitterLanguage(spec); err != nil {
+			t.Fatal(err)
+		}
+	}
+	h := nativeTestHighlighter(t)
+	h.Def.FileType = host.Filetypes[0]
+	b := newTestLines("<style>inside()</style><script>outside()</script>")
+	h.HighlightMatches(b, 0, 0)
+	assertToken(t, b, 0, "inside", "identifier")
+	assertToken(t, b, 0, "outside", "default")
+	assertToken(t, b, 0, "script", "symbol.tag")
+	js.Captures = map[string]string{"function": "type"}
+	if err := RegisterTreeSitterLanguage(js); err != nil {
+		t.Fatal(err)
+	}
+	h.HighlightMatches(b, 0, 0)
+	assertToken(t, b, 0, "inside", "type")
+}

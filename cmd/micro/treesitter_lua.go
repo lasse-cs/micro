@@ -50,7 +50,7 @@ func luaImportMicroTreeSitter() *lua.LTable {
 func treeSitterSpecFromLua(name string, options *lua.LTable) (highlight.TreeSitterLanguageSpec, error) {
 	spec := highlight.TreeSitterLanguageSpec{Name: name, Captures: make(map[string]string)}
 	var problem error
-	allowed := map[string]bool{"parser": true, "symbol": true, "highlights": true, "filetypes": true, "captures": true}
+	allowed := map[string]bool{"parser": true, "symbol": true, "highlights": true, "injections": true, "filetypes": true, "captures": true}
 	options.ForEach(func(k, v lua.LValue) {
 		if !allowed[k.String()] {
 			problem = fmt.Errorf("unknown language option %s", k.String())
@@ -78,6 +78,9 @@ func treeSitterSpecFromLua(name string, options *lua.LTable) (highlight.TreeSitt
 		return spec, err
 	}
 	if spec.Symbol, err = field("symbol", true); err != nil {
+		return spec, err
+	}
+	if spec.Injections, err = field("injections", true); err != nil {
 		return spec, err
 	}
 	types, ok := options.RawGetString("filetypes").(*lua.LTable)

@@ -33,6 +33,8 @@ type treeSitterState struct {
 	starts                                      []int
 	pending                                     bool
 	valid                                       map[int]bool
+	children                                    map[embeddedRegion]*ts.Tree
+	registryVersion                             int
 	revision, parsedRevision                    uint64
 	parses, incrementalParses, highlightedLines uint64
 }
@@ -47,6 +49,7 @@ type treeSitterSpan struct {
 // retained until HighlightMatches has replaced every old match on fallback.
 func (h *Highlighter) ResetTreeSitter() {
 	if s := h.treeSitter; s != nil {
+		s.clearChildren()
 		if s.tree != nil {
 			s.tree.Close()
 		}
@@ -94,6 +97,7 @@ func (h *Highlighter) EditTreeSitter(startRow, startColumn, endRow, endColumn in
 		return
 	}
 	s.pending = true
+	s.clearChildren()
 	s.valid = nil // All query results depend on this document revision.
 	newPosition := ts.Point{Row: uint(startRow), Column: uint(startColumn + len(inserted))}
 	if count := bytes.Count(inserted, []byte{'\n'}); count > 0 {
@@ -174,7 +178,6 @@ func (h *Highlighter) highlightTreeSitter(input LineStates, first, last int) (ok
 	if language == nil {
 		return false
 	}
-	query := language.query
 	s := h.treeSitter
 	if s != nil && s.language != language {
 		h.ResetTreeSitter()
@@ -213,6 +216,16 @@ func (h *Highlighter) highlightTreeSitter(input LineStates, first, last int) (ok
 		s.parsedRevision = s.revision
 	}
 	s.pending = false
+	if language.injections != nil {
+		languageRegistry.RLock()
+		version := len(languageRegistry.versions)
+		languageRegistry.RUnlock()
+		if version != s.registryVersion {
+			s.clearChildren()
+			s.valid = nil
+			s.registryVersion = version
+		}
+	}
 	first = max(0, first)
 	last = min(last, len(s.starts)-1)
 	// Cached rows belong to one text/query revision and are shared by all views.
@@ -230,38 +243,12 @@ func (h *Highlighter) highlightTreeSitter(input LineStates, first, last int) (ok
 	if last+1 < len(s.starts) {
 		hi = s.starts[last+1]
 	}
-	cursor := ts.NewQueryCursor()
-	defer cursor.Close()
-	cursor.SetTimeoutMicros(20_000)
-	cursor.SetByteRange(uint(lo), uint(hi))
-	started := time.Now()
-	matches := cursor.Matches(query, s.tree.RootNode(), s.source)
-	var spans []treeSitterSpan
-	for match := matches.Next(); match != nil; match = matches.Next() {
-		for _, capture := range match.Captures {
-			if int(capture.Index) < len(language.hidden) && language.hidden[capture.Index] {
-				continue
-			}
-			spans = append(spans, treeSitterSpan{capture.Node.StartByte(), capture.Node.EndByte(), match.PatternIndex, language.groups[capture.Index]})
-		}
-	}
-	if cursor.DidExceedMatchLimit() || time.Since(started) >= 20*time.Millisecond {
+	colours := make([]Group, hi-lo)
+	if !paintTree(language, s.tree, s.source, lo, colours) {
 		return false
 	}
-	sort.SliceStable(spans, func(i, j int) bool {
-		a, b := spans[i], spans[j]
-		if a.end-a.start != b.end-b.start {
-			return a.end-a.start > b.end-b.start
-		}
-		return a.pattern < b.pattern
-	})
-	// Query from the root to preserve ancestor context, but paint requested rows only.
-	// Captures crossing viewport boundaries are clipped after matching.
-	colours := make([]Group, hi-lo)
-	for _, span := range spans {
-		for i := max(lo, int(span.start)); i < min(hi, int(span.end)); i++ {
-			colours[i-lo] = span.group
-		}
+	if language.injections != nil && !s.paintInjections(lo, colours) {
+		return false
 	}
 	if s.valid == nil {
 		s.valid = make(map[int]bool)
@@ -284,6 +271,41 @@ func (h *Highlighter) highlightTreeSitter(input LineStates, first, last int) (ok
 		input.SetMatch(row, match)
 		s.valid[row] = true
 		s.highlightedLines++
+	}
+	return true
+}
+
+// Paint only the requested bytes, querying from the root for ancestor context.
+func paintTree(language *registeredLanguage, tree *ts.Tree, source []byte, lo int, colours []Group) bool {
+	hi := lo + len(colours)
+	cursor := ts.NewQueryCursor()
+	defer cursor.Close()
+	cursor.SetTimeoutMicros(20_000)
+	cursor.SetByteRange(uint(lo), uint(hi))
+	started := time.Now()
+	matches := cursor.Matches(language.query, tree.RootNode(), source)
+	var spans []treeSitterSpan
+	for match := matches.Next(); match != nil; match = matches.Next() {
+		for _, capture := range match.Captures {
+			if !language.hidden[capture.Index] {
+				spans = append(spans, treeSitterSpan{capture.Node.StartByte(), capture.Node.EndByte(), match.PatternIndex, language.groups[capture.Index]})
+			}
+		}
+	}
+	if cursor.DidExceedMatchLimit() || time.Since(started) >= 20*time.Millisecond {
+		return false
+	}
+	sort.SliceStable(spans, func(i, j int) bool {
+		a, b := spans[i], spans[j]
+		if a.end-a.start != b.end-b.start {
+			return a.end-a.start > b.end-b.start
+		}
+		return a.pattern < b.pattern
+	})
+	for _, span := range spans {
+		for i := max(lo, int(span.start)); i < min(hi, int(span.end)); i++ {
+			colours[i-lo] = span.group
+		}
 	}
 	return true
 }

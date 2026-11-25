@@ -7,6 +7,7 @@ type TreeSitterLanguageSpec struct {
 	Parser     string
 	Symbol     string
 	Highlights string
+	Injections string // Optional path to a fixed-language injection query.
 	Filetypes  []string
 	Captures   map[string]string
 }

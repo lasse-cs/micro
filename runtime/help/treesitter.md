@@ -80,6 +80,22 @@ Lookup tries the exact capture style, dotted parents (`treesitter.function`, the
 merge with parent styles. Custom YAML syntax rules do not affect native results.
 
 Queries support the binding's text predicates. Query inheritance, Neovim-specific
-directives, local-variable tracking and language injections are not implemented.
-In particular, JavaScript/CSS inside HTML needs injection support; registering
-those grammars separately does not enable embedded-language highlighting.
+directives and local-variable tracking are not implemented.
+
+## Embedded languages
+
+With the standard `html` parser registered, `<script>` bodies use the registered
+`javascript` language and `<style>` bodies use `css`. Tags stay highlighted by
+HTML. If a child language is missing, its body keeps the host highlighting.
+The defaults select by element, not by MIME type or inline attribute.
+
+Plugins can set `injections` to an absolute query file path in `RegisterLanguage`
+to define their own rules (replacing the defaults for HTML). For example:
+
+```scheme
+((style_element (raw_text) @injection.content)
+ (#set! injection.language "css"))
+```
+
+Each captured node is parsed independently. Targets are registered language
+names, not filetypes. Only one level of fixed-language injections is supported.

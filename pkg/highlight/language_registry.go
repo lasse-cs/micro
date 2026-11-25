@@ -15,20 +15,24 @@ import (
 )
 
 type registeredLanguage struct {
-	name     string
-	language *ts.Language
-	query    *ts.Query
-	groups   []Group
-	hidden   []bool
+	name       string
+	language   *ts.Language
+	query      *ts.Query
+	injections *ts.Query
+	targets    []string // Indexed by injection query pattern.
+	content    uint     // @injection.content capture index.
+	groups     []Group
+	hidden     []bool
 }
 
 var languageRegistry = struct {
 	sync.RWMutex
 	filetypes map[string]*registeredLanguage
+	names     map[string]*registeredLanguage
 	// Immutable registrations and queries live until process exit, including old
 	// versions still referenced by open buffers. Registration is explicit, not per-edit.
 	versions []*registeredLanguage
-}{filetypes: make(map[string]*registeredLanguage)}
+}{filetypes: make(map[string]*registeredLanguage), names: make(map[string]*registeredLanguage)}
 var languageName = regexp.MustCompile(`^[a-z][a-z0-9_]*$`)
 var treeSitterGroups map[string]Group
 
@@ -127,23 +131,9 @@ func RegisterTreeSitterLanguage(spec TreeSitterLanguageSpec) error {
 	if !languageName.MatchString(symbol) {
 		return fmt.Errorf("invalid parser symbol %q", symbol)
 	}
-	queryPath, err := absoluteFile(spec.Highlights)
+	source, err := readQuery(spec.Highlights)
 	if err != nil {
 		return fmt.Errorf("highlight query: %w", err)
-	}
-	stat, err := os.Stat(queryPath)
-	if err != nil {
-		return err
-	}
-	if stat.Size() > 1024*1024 {
-		return fmt.Errorf("highlight query exceeds 1 MiB")
-	}
-	source, err := os.ReadFile(queryPath)
-	if err != nil {
-		return err
-	}
-	if regexp.MustCompile(`(?m)^;+\s*(inherits:|extends\b)`).Match(source) {
-		return fmt.Errorf("query inheritance/extends modelines are not supported; supply a self-contained query")
 	}
 	parserPath, err := absoluteFile(spec.Parser)
 	if err != nil {
@@ -180,6 +170,14 @@ func RegisterTreeSitterLanguage(spec TreeSitterLanguageSpec) error {
 		return err
 	}
 	reg := &registeredLanguage{name: spec.Name, language: language, query: query, groups: groups}
+	if err := reg.configureInjections(spec.Injections); err != nil {
+		return fmt.Errorf("injection query: %w", err)
+	}
+	defer func() {
+		if !keep && reg.injections != nil {
+			reg.injections.Close()
+		}
+	}()
 	reg.hidden = make([]bool, len(query.CaptureNames()))
 	for i, name := range query.CaptureNames() {
 		reg.hidden[i] = strings.HasPrefix(name, "_")
@@ -200,8 +198,28 @@ func RegisterTreeSitterLanguage(spec TreeSitterLanguageSpec) error {
 		languageRegistry.filetypes[ft] = reg
 	}
 	languageRegistry.versions = append(languageRegistry.versions, reg)
+	languageRegistry.names[spec.Name] = reg
 	keep = true
 	return nil
+}
+
+func readQuery(path string) ([]byte, error) {
+	path, err := absoluteFile(path)
+	if err != nil {
+		return nil, err
+	}
+	stat, err := os.Stat(path)
+	if err != nil {
+		return nil, err
+	}
+	if stat.Size() > 1024*1024 {
+		return nil, fmt.Errorf("query exceeds 1 MiB")
+	}
+	source, err := os.ReadFile(path)
+	if err == nil && regexp.MustCompile(`(?m)^;+\s*(inherits:|extends\b)`).Match(source) {
+		return nil, fmt.Errorf("query inheritance/extends modelines are not supported; supply a self-contained query")
+	}
+	return source, err
 }
 
 func TreeSitterLanguages() []string {
